@@ -114,7 +114,7 @@ async function cdpLocateEasyApplyButton(tabId: number, targetJobId?: string): Pr
             tag: el.tagName, isSDUI,
             cls: (el.className || '').substring(0, 80),
             text: (el.textContent || '').trim().substring(0, 60),
-            sduiApplyUrl: isSDUI ? el.href.split('?')[0] : undefined,
+            sduiApplyUrl: isSDUI ? el.href : undefined,
             el
           };
         }
@@ -595,7 +595,10 @@ export async function easyApplyClickApplyButton(
       }
     }
 
-    if (!clickResult?.ok) {
+    // Only do the early-exit check when there is no SDUI URL to fall back on.
+    // If CDP located an SDUI button, handleSduiNavigation below should be tried
+    // before giving up, even if the initial click did not open a modal.
+    if (!clickResult?.ok && !locatedSduiApplyUrl) {
       const check = await checkFormAlreadyOpen()
       if (!check.formOpen) {
         const detail = String(clickResult?.detail || '')

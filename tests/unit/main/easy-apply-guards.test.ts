@@ -74,24 +74,46 @@ afterEach(() => {
 
 describe('easy-apply guards', () => {
   it('returns a user-facing unavailable message when SDUI force navigate lands back on jobs/view', async () => {
-    sharedMocks.easyApplyBridgeCommand.mockImplementation((action: string) => {
-      if (action === 'LOCATE_EASY_APPLY_BUTTON') {
-        return Promise.resolve({
-          ok: true,
-          detail: 'located',
-          data: { sduiApplyUrl: 'https://www.linkedin.com/jobs/view/1234567890/?openSDUIApplyFlow=true' }
-        })
-      }
-      if (action === 'CLICK_EASY_APPLY') {
-        return Promise.resolve({
-          ok: true,
-          detail: 'sdui_click_no_modal',
-          data: {
-            sduiApplyUrl: 'https://www.linkedin.com/jobs/view/1234567890/?openSDUIApplyFlow=true',
-            needsSPANavigate: true
+    // Simulate an active LinkedIn tab so the CDP path is taken.
+    bridgeMocks.getActiveLinkedInTabId.mockReturnValue(123)
+
+    // Mock sendCommand for CDP operations:
+    //   cdpLocateEasyApplyButton → finds an SDUI <a> button (full URL preserved)
+    //   attemptCdpClick post-click check → no modal opened
+    //   JS fallback → no button found (falls through to SDUI handler)
+    bridgeMocks.sendCommand.mockImplementation((command: string, args: unknown) => {
+      if (command === 'CDP_ATTACH') return Promise.resolve({ ok: true })
+      if (command === 'CDP_DETACH') return Promise.resolve({ ok: true })
+      if (command === 'CDP_COMMAND') {
+        const method = (args as Record<string, unknown>)?.method as string | undefined
+        if (method === 'Input.dispatchMouseEvent') return Promise.resolve({ ok: true })
+        if (method === 'Runtime.evaluate') {
+          const expr = String(((args as Record<string, unknown>)?.params as Record<string, unknown>)?.expression || '')
+          // cdpLocateEasyApplyButton expression — identified by the SDUI selector it injects
+          if (expr.includes('openSDUIApplyFlow')) {
+            return Promise.resolve({
+              ok: true,
+              data: { result: { result: { type: 'string', value: JSON.stringify({
+                ok: true, x: 100, y: 200, width: 80, height: 30,
+                tag: 'A', isSDUI: true,
+                sduiApplyUrl: 'https://www.linkedin.com/jobs/view/1234567890/?openSDUIApplyFlow=true'
+              }) } } }
+            })
           }
-        })
+          // Post-click check or JS fallback — no modal, still on jobs/view
+          return Promise.resolve({
+            ok: true,
+            data: { result: { result: { type: 'string', value: JSON.stringify({
+              url: 'https://www.linkedin.com/jobs/view/1234567890/',
+              hasModal: false, hasArtdecoModal: false, inputCount: 0
+            }) } } }
+          })
+        }
       }
+      return Promise.resolve({ ok: true })
+    })
+
+    sharedMocks.easyApplyBridgeCommand.mockImplementation((action: string) => {
       if (action === 'FORCE_NAVIGATE') {
         return Promise.resolve({ ok: true, detail: 'force_navigated' })
       }
